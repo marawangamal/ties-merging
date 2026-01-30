@@ -56,6 +56,9 @@ class DatasetReader(object):
 
         if split not in self.cached_origData:
             logger.info(f"\t\tLoading Full Data for {self.name}")
+            print(
+                f"DEBUG: dataset_stash {self.dataset_stash} | load_split {load_split}"
+            )
             huggingFace_data = load_dataset(
                 *self.dataset_stash,
                 split=load_split,
@@ -70,13 +73,15 @@ class DatasetReader(object):
             if split.lower() in ["validation", "test"]:
                 if len(orig_data) > self.num_val_samples:
                     orig_val_data, orig_test_data = self._split_val_into_val_and_test(
-                    orig_data, self.num_val_samples
-                )
+                        orig_data, self.num_val_samples
+                    )
                 else:
-                    print(f"Validation/Test split is too small. {len(orig_data)} < {self.num_val_samples}")
+                    print(
+                        f"Validation/Test split is too small. {len(orig_data)} < {self.num_val_samples}"
+                    )
                     print("splitting equally")
                     orig_val_data, orig_test_data = self._split_val_into_val_and_test(
-                        orig_data, len(orig_data)//2
+                        orig_data, len(orig_data) // 2
                     )
 
                 self.cached_origData["validation"] = orig_val_data
@@ -500,10 +505,16 @@ class StoryClozeReader(DatasetReader):
         if split not in self.cached_origData:
             # Do not use default method for loading dataset since the story_cloze dataset must be
             # downloaded manually and then we have to set data_dir to point to it.
+            # huggingFace_data = load_dataset(
+            #     *self.dataset_stash,
+            #     split=load_split,
+            #     data_dir="",
+            # )
             huggingFace_data = load_dataset(
-                *self.dataset_stash,
-                split=load_split,
-                data_dir="",
+                "csv",
+                data_files=f"datasets/cloze_{split}_{self.dataset_stash[1]}.csv",
+                trust_remote_code=True,
+                split="train",
             )
 
             orig_data = []

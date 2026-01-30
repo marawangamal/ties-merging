@@ -2,7 +2,9 @@ import sys, os
 
 print(f"Current working directory: {os.getcwd()}")
 sys.path.insert(0, os.getcwd())
-os.environ["HF_HOME"] = os.path.join("/nas-hdd/prateek/.cache/huggingface/")
+# os.environ["HF_HOME"] = os.path.expanduser(
+#     os.path.join(os.environ.get("SCRATCH", ""), "huggingface")
+# )
 
 
 import torch
@@ -57,7 +59,6 @@ from src.data.PytorchDataset import PytorchDataset
 logger = logging.getLogger("root")
 
 
-
 def evaluate_checkpoint(
     model,
     tokenizer,
@@ -102,7 +103,7 @@ def evaluate_checkpoint(
     if should_evalValidation:
         splits_toEvaluate.append("validation")
 
-    if len(splits_toEvaluate) > 1:
+    if len(splits_toEvaluate) >= 1:
         fields_toIterateOver.append("split")
         fields_toUpdate["split"] = splits_toEvaluate
 
@@ -118,6 +119,7 @@ def evaluate_checkpoint(
             inference_dataset_mixture
         )
 
+    print(f"DEBUG: fields_toIterateOver {fields_toIterateOver}")
     multiEvaluation_config = MultiEvaluationConfig(
         fields_toIterateOver=fields_toIterateOver,
         values_toIterateOver=None,

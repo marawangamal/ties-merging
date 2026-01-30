@@ -25,12 +25,12 @@ BASIC_INFORMATION = {
     "t5-base": {
         "base_model": "t5-base",
         "dump_dir": f"",
-        "load_dir": f"",
+        "load_dir": os.path.join("exp_out", "training", "t5-base"),
     },
     "t5-large": {
         "base_model": "t5-large",
         "dump_dir": f"",
-        "load_dir": f"",
+        "load_dir": os.path.join("exp_out", "training", "t5-large"),
     },
 }
 
@@ -168,7 +168,7 @@ def topk_mask_preserve_normfrac(T, normfrac=0.9, return_mask=False):
     row_norms = torch.norm(T, p=2, dim=1, keepdim=True)
 
     # Calculate the proportion of each element's contribution to its row's norm
-    proportion = T.abs() ** 2 / row_norms ** 2
+    proportion = T.abs() ** 2 / row_norms**2
 
     # Sort the proportions and their indices in descending order
     sorted_proportions, sorted_indices = torch.sort(proportion, dim=1, descending=True)
@@ -319,13 +319,13 @@ def resolve_zero_signs(sign_to_mult, method="majority"):
 
 def normfrac_based_sign(Tensor):
     row_norms = torch.norm(Tensor, dim=1, keepdim=True)
-    norm_fracs = (Tensor ** 2) / row_norms ** 2
+    norm_fracs = (Tensor**2) / row_norms**2
     return torch.sign(Tensor[norm_fracs.argmax(dim=0), torch.arange(Tensor.shape[1])])
 
 
 def normmass_based_sign(Tensor):
     row_norms = torch.norm(Tensor, dim=1, keepdim=True)
-    norm_fracs = (Tensor ** 2) / row_norms ** 2
+    norm_fracs = (Tensor**2) / row_norms**2
     return (Tensor.sign() * norm_fracs.abs()).sum(dim=0).sign()
 
 
@@ -548,7 +548,9 @@ def load_t5(merging_tasks, model_key, pretrained_state_dict):
     load_dir = BASIC_INFORMATION[model_key]["load_dir"]
 
     # load the finetune and pretrained checkpoints
-    filepaths = [os.path.join(load_dir, task, "best.pt") for task in merging_tasks]
+    filepaths = [
+        os.path.join(load_dir, task, "best_model.pt") for task in merging_tasks
+    ]
     ft_checks = [torch.load(fp) for fp in filepaths]
     ptm_check = pretrained_state_dict
 

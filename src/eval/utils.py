@@ -6,7 +6,7 @@ import os
 def prepare_batchOfEvalInfo(batch):
     batchOf_evalInfo = copy.deepcopy(batch)
 
-    for (key, value) in batch.items():
+    for key, value in batch.items():
         # Remove ids and mask since no longer needed
         if ("ids" in key) or ("mask" in key):
             del batchOf_evalInfo[key]
@@ -31,7 +31,9 @@ def getAndMake_specificPredictionDir(prediction_dir, split, dataset, template_id
     """
 
     prediction_name = f"{dataset}_template_{template_idx}"
-
+    print(
+        f"DEBUG: prediction_dir {prediction_dir} | split {split} | dataset {dataset} | template_idx {template_idx}"
+    )
     specificPrediction_dir = os.path.join(prediction_dir, split, prediction_name)
     if not os.path.exists(specificPrediction_dir):
         os.makedirs(specificPrediction_dir)

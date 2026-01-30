@@ -30,7 +30,18 @@ T0_HELD_OUT_DATASETS = [
     "anli-r3",
 ]
 
-T5_MIXTURE = ["anli-r1", "anli-r2", "anli-r3", "paws", "qasc", "quartz", "story_cloze", "wiki_qa", "winogrande", "wsc"]
+T5_MIXTURE = [
+    "anli-r1",
+    "anli-r2",
+    "anli-r3",
+    "paws",
+    "qasc",
+    "quartz",
+    "story_cloze",
+    "wiki_qa",
+    "winogrande",
+    "wsc",
+]
 T5_MIXTURE = ["paws", "qasc", "quartz", "story_cloze", "wiki_qa", "winogrande", "wsc"]
 
 
@@ -39,7 +50,15 @@ DATASET_MIXTURES = {
     "T0_held_out": T0_HELD_OUT_DATASETS,
     "t5_mixture": T5_MIXTURE,
     "t5_mixture": T5_MIXTURE,
+    # add single dataset mixtures
+    "qasc": ["qasc"],
+    "quartz": ["quartz"],
+    "story_cloze": ["story_cloze"],
+    "wiki_qa": ["wiki_qa"],
+    "winogrande": ["winogrande"],
+    "wsc": ["wsc"],
 }
+
 
 class DatasetMixtureReader(object):
     def __init__(self, mixture_ofDatasetReaders, maximumDatapoints_perDataset):
