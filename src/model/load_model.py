@@ -208,7 +208,7 @@ def loadCheckpoint_intoModel(checkpoint, model):
             "transformer.shared.weight"
         ]
 
-    update_stats = model.load_state_dict(checkpoint, strict=False)
+    update_stats = model.load_state_dict(checkpoint, strict=True)
     logger.info(f"Missing keys: {update_stats.missing_keys}")
     logger.info(f"Unexpected keys: {update_stats.unexpected_keys}")
 

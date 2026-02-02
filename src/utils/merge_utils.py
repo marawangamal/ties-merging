@@ -402,6 +402,98 @@ def basic_merging(merge_func, flat_checks, sd_checks, remove_keys):
     return final_sd
 
 
+def merge_ta(tensors, *args, **kwargs):
+    return tensors.sum(dim=0) * 0.4
+
+
+def mixed_wa_ta_merging(tensors, key):
+    # tensors: [N, Do, Di]
+    if "DenseReluDense" in key and "wo" in key:  # do TA because its one-hot like
+        return merge_ta(tensors)
+    else:
+        return tensors.mean(dim=0)
+
+
+def mixed_wa_ta_merging_abl(tensors, key):
+    # tensors: [N, Do, Di]
+    if "DenseReluDense" in key:  # do TA because its one-hot like
+        return tensors.mean(dim=0)
+    else:
+        return merge_ta(tensors)
+
+
+# Method, Avg.,qasc,quartz
+# mix_wa_ta,   80.3,87.5,73.2
+# wa,          86.6,93.8,79.4
+# ta,          48.1,40.6,55.5
+# ta(lam=0.4), 60.9,34.4,94.0,59.4,55.9
+
+
+# Avg.,qasc,quartz,rte
+# mix_wa_ta: 54.6,75.0,54.4,34.4
+# wa: 66.6,87.5,71.6,40.6
+def opmerge(merge_type, sd_checks, remove_keys):
+    merge_fn = {
+        "wa": lambda tensors, key: tensors.mean(dim=0),
+        "ta": merge_ta,
+        "mix_wa_ta": mixed_wa_ta_merging,
+        "mix_wa_ta_abl": mixed_wa_ta_merging_abl,
+    }[merge_type]
+
+    new_sd = {}
+    for key, tens in sd_checks[0].items():
+        if len(tens.shape) == 2 and not key in remove_keys:
+            # merge
+            tensors = torch.stack([sd_checks[i][key] for i in range(len(sd_checks))])
+            new_sd[key] = merge_fn(tensors, key)
+        else:
+            # keep as is
+            new_sd[key] = tens
+    return new_sd
+
+
+def opmerge_v2(pt_state_dict, ft_ckpt_paths, merge_type, remove_keys, cache_size=10):
+
+    merge_fn = {
+        "wa": lambda pt_tensor, task_tensors, key: pt_tensor + task_tensors.mean(dim=0),
+        "ta": lambda pt_tensor, task_tensors, key: pt_tensor
+        + task_tensors.sum(dim=0) * 0.4,
+        # "mix_wa_ta": mixed_wa_ta_merging,
+        # "mix_wa_ta_abl": mixed_wa_ta_merging_abl,
+    }[merge_type]
+
+    new_sd = {}
+    num_keys = len(pt_state_dict)
+    cache = {}
+    keys = list(pt_state_dict.keys())
+    for i, (key, pt_tens) in enumerate(pt_state_dict.items()):
+        if len(pt_tens.shape) == 2 and not key in remove_keys:
+            # merge
+            # load the layer from each of the ft_ckpt_paths
+            task_tensors = []
+            for ft_ckpt_path in ft_ckpt_paths:
+                if ft_ckpt_path in cache and key in cache[ft_ckpt_path]:
+                    # cache hit
+                    ft_state_dict = cache[ft_ckpt_path]
+                else:
+                    # cache miss
+                    ft_state_dict = torch.load(ft_ckpt_path)
+                    cache[ft_ckpt_path] = {}  # empty cache
+                    for k in keys[i + 1 : i + cache_size + 1]:  # cache items
+                        cache[ft_ckpt_path][k] = ft_state_dict[k]
+                task_tensors.append(ft_state_dict[key] - pt_tens)
+            task_tensors = torch.stack(task_tensors)
+            new_sd[key] = merge_fn(
+                pt_tensor=pt_tens, task_tensors=task_tensors, key=key
+            )
+            print(f"[{i}/{num_keys}] Merged {key} with {merge_type}")
+        else:
+            # keep as is
+            new_sd[key] = pt_tens
+            print(f"[{i}/{num_keys}] Keeping {key} as is")
+    return new_sd
+
+
 def tv_merging(tv_flat_checks):
     """Merging by creating and scaling Task Vectors"""
     all_checks = tv_flat_checks.clone()

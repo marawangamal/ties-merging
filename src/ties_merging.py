@@ -98,7 +98,18 @@ def merge_and_evalaute(
     logger.info(f"Loading Checkpoints for Merging: {config_toInit.pretrained_model}")
     all_mixing_datasets = get_dataset_from_argparse(dataset_mixture_to_merge)
     dataset_folder = ",".join(d for d in all_mixing_datasets)
-    if config_toInit.pretrained_model == "bigscience/T0_3B":
+    if "opm" in merge_function:
+        pt_state_dict = model.state_dict()
+        ft_ckpt_paths = [
+            os.path.join("exp_out", "training", "t5-base", d, "best_model.pt")
+            for d in all_mixing_datasets
+        ]
+        # TODO: Hardcoding. Only handling t5 case for now.
+        remove_keys = [
+            "transformer.encoder.embed_tokens.weight",
+            "transformer.decoder.embed_tokens.weight",
+        ]
+    elif config_toInit.pretrained_model == "bigscience/T0_3B":
         (
             tv_flat_checks,
             flat_ptm,
@@ -149,6 +160,34 @@ def merge_and_evalaute(
         del tv_flat_checks, flat_ptm, flat_ft, ft_checks, ptm_check
 
         model = loadCheckpoint_intoModel(merged_checkpoint, model)
+        # Evaluate
+        experiment_dir = os.path.join(
+            config_toInit.experiment_dir,
+            dataset_folder,
+        )
+        cached_dataset_reader = inference(
+            model,
+            tokenizer,
+            config_toInit,
+            model_config,
+            cached_datasetReaders=cached_dataset_reader,
+            across_multiplePrompts=multiple_prompts,
+            experiment_dir=experiment_dir,
+            all_inferenceDatasetMixtures=all_inference_dataset_mixtures,
+            inference_kwargs=inference_kwargs,
+            device=device,
+        )
+    elif "opm" in merge_function:
+        logger.info(f"** Performing Merging with {merge_function} **")
+        _, merge_type = merge_function.split("::")
+        # merged_checkpoint = opmerge(merge_type, ft_checks, remove_keys)
+        merged_checkpoint = opmerge_v2(
+            pt_state_dict=pt_state_dict,
+            ft_ckpt_paths=ft_ckpt_paths,
+            merge_type=merge_type,
+            remove_keys=remove_keys,
+        )
+        model.load_state_dict(merged_checkpoint, strict=True)
         # Evaluate
         experiment_dir = os.path.join(
             config_toInit.experiment_dir,

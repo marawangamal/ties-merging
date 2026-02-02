@@ -57,6 +57,7 @@ DATASET_MIXTURES = {
     "wiki_qa": ["wiki_qa"],
     "winogrande": ["winogrande"],
     "wsc": ["wsc"],
+    "paws": ["paws"],
 }
 
 

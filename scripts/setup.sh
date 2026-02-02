@@ -18,7 +18,8 @@ python scripts/download_model.py
 # "story_cloze": StoryClozeReader,
 # "winogrande": WinograndeReader,
 # "wsc": WSCReader,
-python src/training.py -c configs/t5_base.json -k train_batch_size=8 gradient_accumulation_factor=1 project_name=training experiment_name=qasc train_dataset=qasc train_dataset_mixture=None inference_dataset_mixture=qasc
+dataset=wsc; \
+python src/training.py -c configs/t5_base.json -k train_batch_size=8 gradient_accumulation_factor=1 project_name=training experiment_name=${dataset} train_dataset=${dataset} train_dataset_mixture=None inference_dataset_mixture=${dataset}
 
 
 # 4. Evaluate T5-Base on these
@@ -29,6 +30,17 @@ python ./src/inference.py -c configs/t5_base.json -i ${dataset} --kwargs checkpo
 
 
 # 5. Merge T5-Base on these
-datasets_to_merge=qasc,quartz; \
+datasets_to_merge=qasc,wiki_qa,quartz,paws; \
+datasets_to_inference=qasc,wiki_qa,quartz,paws; \
 eval_split=validation; \
-python ./src/ties_merging.py -c configs/t5_base.json -i ${datasets_to_merge} -m ${datasets_to_merge} -f basic_mean --kwargs split=${eval_split} project_name=evaluation experiment_name=mean
+method=wa; \
+python ./src/ties_merging.py -c configs/t5_base.json -i ${datasets_to_inference} -m ${datasets_to_merge} -f opm::${method} --kwargs split=${eval_split} project_name=evaluation experiment_name=opm_${method}
+
+# -c configs/t5_base.json -i qasc,quartz -m qasc,quartz -f basic_mean --kwargs split=validation project_name=evaluation experiment_name=mean
+
+
+# Results for T5-Base on these
+# Method,,      qasc,wiki_qa,quartz,paws
+# Avg.          82.5,90.6,93.8,68.8,76.6
+# TA,           47.1,12.5,71.8,51.6,52.5
+# TA (lam=0.4), 60.9,34.4,94.0,59.4,55.9
