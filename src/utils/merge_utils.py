@@ -13,6 +13,7 @@ from collections import OrderedDict
 from src.utils.analysis_utils import *
 from transformers import AutoModelForSeq2SeqLM
 import torch.nn.functional as F
+from scipy.linalg import solve_sylvester
 
 logger = logging.getLogger("root")
 
@@ -402,64 +403,193 @@ def basic_merging(merge_func, flat_checks, sd_checks, remove_keys):
     return final_sd
 
 
-def merge_ta(tensors, *args, **kwargs):
-    return tensors.sum(dim=0) * 0.4
+# ****************************************************************
+#                 New Methods
+# ****************************************************************
 
 
-def mixed_wa_ta_merging(tensors, key):
+def compute_procrustes(x: torch.Tensor) -> torch.Tensor:
+    """Finds best ortho approx of x
+
+    Args:
+        x (torch.Tensor): (Di, Do)
+
+    Returns:
+        torch.Tensor: (Di, Do)
+    """
+    u, _, vt = torch.linalg.svd(x, full_matrices=False)
+    return u @ vt
+
+
+def merge_ta(pt_tensor, task_tensors, **kwargs):
+    return pt_tensor + task_tensors.sum(dim=0) * 0.4
+
+
+def merge_wa(pt_tensor, task_tensors, **kwargs):
+    return pt_tensor + task_tensors.mean(dim=0)
+
+
+def mixed_wa_ta_merging(pt_tensor, task_tensors, key):
     # tensors: [N, Do, Di]
-    if "DenseReluDense" in key and "wo" in key:  # do TA because its one-hot like
-        return merge_ta(tensors)
+    if "SelfAttention.o" in key:  # most like identity
+        print("     --> WA")
+        return merge_wa(pt_tensor, task_tensors)
     else:
-        return tensors.mean(dim=0)
+        print("     --> TA")
+        return merge_ta(pt_tensor, task_tensors)
 
 
-def mixed_wa_ta_merging_abl(tensors, key):
+def mixed_wa_ta_merging_abl(pt_tensor, task_tensors, key):
     # tensors: [N, Do, Di]
-    if "DenseReluDense" in key:  # do TA because its one-hot like
-        return tensors.mean(dim=0)
+    if "SelfAttention.o" in key:
+        return merge_ta(pt_tensor, task_tensors)
     else:
-        return merge_ta(tensors)
+        return merge_wa(pt_tensor, task_tensors)
 
 
-# Method, Avg.,qasc,quartz
-# mix_wa_ta,   80.3,87.5,73.2
-# wa,          86.6,93.8,79.4
-# ta,          48.1,40.6,55.5
-# ta(lam=0.4), 60.9,34.4,94.0,59.4,55.9
+def merge_tsv(pt_tensor, task_tensors, **kwargs):
+    """Computes the TSV merge of the given tensors.
+
+    Computes: Uo  Dc Vto
+
+    Args:
+        pt_tensor (torch.Tensor): The pretrained tensor. Shape: (Di, Do)
+        task_tensors (torch.Tensor): The tasktensors to merge. Shape: (N_tasks, Di, Do)
+
+    Returns:
+        torch.Tensor: The merged tensors. Shape: (Di, Do)
+    """
+    N_tasks = len(task_tensors)
+    u, s, vt = torch.linalg.svd(task_tensors, full_matrices=False)
+    R = min(u.shape[1], vt.shape[2])
+    Rp = R // N_tasks
+    u, s, vt = u[:, :, :Rp], s[:, :Rp], vt[:, :Rp, :]
+
+    # # # w/o decorrelation
+    # tau_bl = torch.einsum("bij,bj,bjk->bik", u, s, vt)
+    # tau[layer_name] = tau_bl.sum(dim=0)
+
+    # w/ decorrelation
+    B, Di, _ = u.shape
+    _, _, Do = vt.shape
+    # (Di, B, R)
+    u_hat = u.permute(1, 0, 2).reshape(Di, B * Rp)
+    s_hat = s.reshape(-1)
+    vt_hat = vt.reshape(B * Rp, Do)
+    u_ortho = compute_procrustes(u_hat)  # (Di, Rp)
+    vt_ortho = compute_procrustes(vt_hat.T).T  # (Rp, Do)
+    tau_l = torch.einsum("ij,j,jk->ik", u_ortho, s_hat, vt_ortho)  # (Di, Do)
+    return pt_tensor + tau_l
 
 
-# Avg.,qasc,quartz,rte
-# mix_wa_ta: 54.6,75.0,54.4,34.4
-# wa: 66.6,87.5,71.6,40.6
-def opmerge(merge_type, sd_checks, remove_keys):
+# **************************************************
+#               Eigen Covariance
+# **************************************************
+
+
+def merge_eigcov_right(tensors, *args, **kwargs):
+    _, _, vt = torch.linalg.svd(tensors, full_matrices=False)
+    wbar = tensors.sum(dim=0)
+    vbar = torch.bmm(vt.transpose(1, 2), vt).sum(dim=0)
+    return wbar @ torch.linalg.pinv(vbar)
+
+
+def merge_eigcov_left(tensors, *args, **kwargs):
+    T, Do, Di = tensors.shape
+    u, s, vt = torch.linalg.svd(
+        tensors, full_matrices=False
+    )  # u:(T,Do,R) s:(T,R) vt:(T,R,Di)
+    R = s.shape[-1]
+    u = u[:, :, :R]
+    vt = vt[:, :R, :]
+
+    # (T, Do, R) -> (Do, T, R) ->(Do, T*R)
+    uc = u.permute(1, 0, 2).reshape(Do, T * R)
+    # (T, R, Di) -> (T*R, Di)
+    vct = vt.reshape(T * R, Di)
+    sc = torch.diag(s.reshape(-1))
+    uc_pinv = torch.linalg.pinv(uc)
+    wm = uc_pinv.T @ sc @ vct  # (Do,Di)
+    return wm
+
+
+def merge_eigcov_sylvester_v1(tensors, *args, **kwargs):
+    # Solve sylvester equation: AW + WB = C
+    u, s, vt = torch.linalg.svd(tensors, full_matrices=False)
+    a = torch.bmm(u, u.transpose(1, 2)).sum(dim=0)
+    b = torch.bmm(vt.transpose(1, 2), vt).sum(dim=0)
+    c = tensors.sum(dim=0) * 2
+    wm = torch.from_numpy(
+        solve_sylvester(a.cpu().numpy(), b.cpu().numpy(), c.cpu().numpy())
+    ).to(tensors.device)
+    return wm
+
+
+def merge_eigcov_sylvester_v2(tensors, *args, **kwargs):
+    # Solve sylvester equation: AW + WB = C,
+    # using simplified method as A,B are symmetric
+    u, s, vt = torch.linalg.svd(tensors, full_matrices=False)
+    a = torch.bmm(u, u.transpose(1, 2)).sum(dim=0)
+    b = torch.bmm(vt.transpose(1, 2), vt).sum(dim=0)
+    wbar = tensors.sum(dim=0)
+    ua, _, _ = torch.linalg.svd(a, full_matrices=False)
+    ub, _, _ = torch.linalg.svd(b, full_matrices=False)
+    return ua @ ua.T @ wbar @ ub @ ub.T
+
+
+def merge_eigcov_sylvester_v3(tensors, epsilon=1e-4, *args, **kwargs):
+    # Solve sylvester equation: AW + WB = C
+    # using SVD of projectors
+    N, Do, Di = tensors.shape
+    u, s, vt = torch.linalg.svd(tensors, full_matrices=False)
+    uc = u.permute(1, 0, 2).reshape(Do, N * u.shape[2])
+    vc = vt.transpose(1, 2).reshape(Di, N * u.shape[2])
+
+    # get psi_u and psi_v
+    psi_u, lambda_u, _ = torch.linalg.svd(uc, full_matrices=False)
+    psi_v, lambda_v, _ = torch.linalg.svd(vc, full_matrices=False)
+
+    # Extract diags
+    lambda_uv = lambda_u.square().unsqueeze(1) + lambda_v.square().unsqueeze(0)
+
+    w_bar = tensors.sum(dim=0) * 2
+    c_tilde = (psi_u.T @ w_bar @ psi_v) / (lambda_uv + epsilon)
+
+    return psi_u @ c_tilde @ psi_v.T
+
+
+def merge_eigcov_sylvester_v4(tensors, *args, **kwargs):
+    u, s, vt = torch.linalg.svd(tensors, full_matrices=False)
+    pu_tilde = torch.bmm(u, u.transpose(1, 2)).sum(dim=0)
+    pv_tilde = torch.bmm(vt.transpose(1, 2), vt).sum(dim=0)
+
+    # svd of projectors
+    psi_u, lambda_u, _ = torch.linalg.svd(pu_tilde, full_matrices=True)
+    psi_v, lambda_v, _ = torch.linalg.svd(pv_tilde, full_matrices=True)
+
+    # # extract diags
+    # lambda_uv = lambda_u.unsqueeze(1) + lambda_v.unsqueeze(0)
+    wbar = tensors.sum(dim=0)
+    return psi_u @ psi_u.T @ wbar @ psi_v @ psi_v.T
+
+
+def merge_punity(pt_tensor, task_tensors, **kwargs):
+    # partition of unity method
+    # W = \sum_i Wi Qi (\sum_j Qj)^-1
+    q = torch.bmm(task_tensors.transpose(1, 2), task_tensors)  # (N, Di, Di)
+    qbar = q.sum(dim=0)
+    return pt_tensor + (torch.bmm(task_tensors, q).sum(dim=0) @ torch.linalg.pinv(qbar))
+
+
+def opmerge(pt_state_dict, ft_ckpt_paths, merge_type, remove_keys, cache_size=32):
+
     merge_fn = {
-        "wa": lambda tensors, key: tensors.mean(dim=0),
+        "wa": merge_wa,
         "ta": merge_ta,
         "mix_wa_ta": mixed_wa_ta_merging,
         "mix_wa_ta_abl": mixed_wa_ta_merging_abl,
-    }[merge_type]
-
-    new_sd = {}
-    for key, tens in sd_checks[0].items():
-        if len(tens.shape) == 2 and not key in remove_keys:
-            # merge
-            tensors = torch.stack([sd_checks[i][key] for i in range(len(sd_checks))])
-            new_sd[key] = merge_fn(tensors, key)
-        else:
-            # keep as is
-            new_sd[key] = tens
-    return new_sd
-
-
-def opmerge_v2(pt_state_dict, ft_ckpt_paths, merge_type, remove_keys, cache_size=10):
-
-    merge_fn = {
-        "wa": lambda pt_tensor, task_tensors, key: pt_tensor + task_tensors.mean(dim=0),
-        "ta": lambda pt_tensor, task_tensors, key: pt_tensor
-        + task_tensors.sum(dim=0) * 0.4,
-        # "mix_wa_ta": mixed_wa_ta_merging,
-        # "mix_wa_ta_abl": mixed_wa_ta_merging_abl,
+        "tsv": merge_tsv,
+        "punity": merge_punity,
     }[merge_type]
 
     new_sd = {}

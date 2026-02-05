@@ -181,7 +181,7 @@ def merge_and_evalaute(
         logger.info(f"** Performing Merging with {merge_function} **")
         _, merge_type = merge_function.split("::")
         # merged_checkpoint = opmerge(merge_type, ft_checks, remove_keys)
-        merged_checkpoint = opmerge_v2(
+        merged_checkpoint = opmerge(
             pt_state_dict=pt_state_dict,
             ft_ckpt_paths=ft_ckpt_paths,
             merge_type=merge_type,

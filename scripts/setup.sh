@@ -30,8 +30,9 @@ python ./src/inference.py -c configs/t5_base.json -i ${dataset} --kwargs checkpo
 
 
 # 5. Merge T5-Base on these
-datasets_to_merge=qasc,wiki_qa,quartz,paws; \
-datasets_to_inference=qasc,wiki_qa,quartz,paws; \
+# winogrande  wsc
+datasets_to_merge=qasc,wiki_qa,quartz,paws,winogrande,wsc; \
+datasets_to_inference=qasc,wiki_qa,quartz,paws,winogrande,wsc; \
 eval_split=validation; \
 method=wa; \
 python ./src/ties_merging.py -c configs/t5_base.json -i ${datasets_to_inference} -m ${datasets_to_merge} -f opm::${method} --kwargs split=${eval_split} project_name=evaluation experiment_name=opm_${method}
@@ -42,5 +43,5 @@ python ./src/ties_merging.py -c configs/t5_base.json -i ${datasets_to_inference}
 # Results for T5-Base on these
 # Method,,      qasc,wiki_qa,quartz,paws
 # Avg.          82.5,90.6,93.8,68.8,76.6
-# TA,           47.1,12.5,71.8,51.6,52.5
-# TA (lam=0.4), 60.9,34.4,94.0,59.4,55.9
+# TA (lam=0.4), 84.0,84.4,94.6,72.9,84.1
+# mix_wa_ta,    81.3,84.4,93.9,69.8,77.1
