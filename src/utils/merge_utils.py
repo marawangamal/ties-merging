@@ -1,3 +1,4 @@
+import pickle
 import sys, os
 
 print(f"Current working directory: {os.getcwd()}")
@@ -429,13 +430,22 @@ def merge_wa(pt_tensor, task_tensors, **kwargs):
     return pt_tensor + task_tensors.mean(dim=0)
 
 
-def mixed_wa_ta_merging(pt_tensor, task_tensors, key):
-    # tensors: [N, Do, Di]
-    if "SelfAttention.o" in key:  # most like identity
-        print("     --> WA")
+# def mixed_wa_ta_merging(pt_tensor, task_tensors, key, ranks_dict, **kwargs):
+#     all_ranks = torch.tensor(list(ranks_dict.values()), dtype=torch.float32)
+#     threshold = torch.quantile(all_ranks, 0.99999)
+#     key_rn = key.replace(".weight", "")
+#     if key_rn in ranks_dict and ranks_dict[key_rn] >= threshold:
+#         # TOP 10% RANK: Weight Averaging (WA)
+#         print(f"[{key}] TOP 10% RANK: Weight Averaging (WA)")
+#         return merge_wa(pt_tensor, task_tensors)
+#     # Task Arithmetic (TA)
+#     return merge_ta(pt_tensor, task_tensors)
+
+
+def mixed_wa_ta_merging(pt_tensor, task_tensors, key, **kwargs):
+    if "wi" in key:
         return merge_wa(pt_tensor, task_tensors)
     else:
-        print("     --> TA")
         return merge_ta(pt_tensor, task_tensors)
 
 
@@ -487,98 +497,9 @@ def merge_tsv(pt_tensor, task_tensors, **kwargs):
 # **************************************************
 
 
-def merge_eigcov_right(tensors, *args, **kwargs):
-    _, _, vt = torch.linalg.svd(tensors, full_matrices=False)
-    wbar = tensors.sum(dim=0)
-    vbar = torch.bmm(vt.transpose(1, 2), vt).sum(dim=0)
-    return wbar @ torch.linalg.pinv(vbar)
-
-
-def merge_eigcov_left(tensors, *args, **kwargs):
-    T, Do, Di = tensors.shape
-    u, s, vt = torch.linalg.svd(
-        tensors, full_matrices=False
-    )  # u:(T,Do,R) s:(T,R) vt:(T,R,Di)
-    R = s.shape[-1]
-    u = u[:, :, :R]
-    vt = vt[:, :R, :]
-
-    # (T, Do, R) -> (Do, T, R) ->(Do, T*R)
-    uc = u.permute(1, 0, 2).reshape(Do, T * R)
-    # (T, R, Di) -> (T*R, Di)
-    vct = vt.reshape(T * R, Di)
-    sc = torch.diag(s.reshape(-1))
-    uc_pinv = torch.linalg.pinv(uc)
-    wm = uc_pinv.T @ sc @ vct  # (Do,Di)
-    return wm
-
-
-def merge_eigcov_sylvester_v1(tensors, *args, **kwargs):
-    # Solve sylvester equation: AW + WB = C
-    u, s, vt = torch.linalg.svd(tensors, full_matrices=False)
-    a = torch.bmm(u, u.transpose(1, 2)).sum(dim=0)
-    b = torch.bmm(vt.transpose(1, 2), vt).sum(dim=0)
-    c = tensors.sum(dim=0) * 2
-    wm = torch.from_numpy(
-        solve_sylvester(a.cpu().numpy(), b.cpu().numpy(), c.cpu().numpy())
-    ).to(tensors.device)
-    return wm
-
-
-def merge_eigcov_sylvester_v2(tensors, *args, **kwargs):
-    # Solve sylvester equation: AW + WB = C,
-    # using simplified method as A,B are symmetric
-    u, s, vt = torch.linalg.svd(tensors, full_matrices=False)
-    a = torch.bmm(u, u.transpose(1, 2)).sum(dim=0)
-    b = torch.bmm(vt.transpose(1, 2), vt).sum(dim=0)
-    wbar = tensors.sum(dim=0)
-    ua, _, _ = torch.linalg.svd(a, full_matrices=False)
-    ub, _, _ = torch.linalg.svd(b, full_matrices=False)
-    return ua @ ua.T @ wbar @ ub @ ub.T
-
-
-def merge_eigcov_sylvester_v3(tensors, epsilon=1e-4, *args, **kwargs):
-    # Solve sylvester equation: AW + WB = C
-    # using SVD of projectors
-    N, Do, Di = tensors.shape
-    u, s, vt = torch.linalg.svd(tensors, full_matrices=False)
-    uc = u.permute(1, 0, 2).reshape(Do, N * u.shape[2])
-    vc = vt.transpose(1, 2).reshape(Di, N * u.shape[2])
-
-    # get psi_u and psi_v
-    psi_u, lambda_u, _ = torch.linalg.svd(uc, full_matrices=False)
-    psi_v, lambda_v, _ = torch.linalg.svd(vc, full_matrices=False)
-
-    # Extract diags
-    lambda_uv = lambda_u.square().unsqueeze(1) + lambda_v.square().unsqueeze(0)
-
-    w_bar = tensors.sum(dim=0) * 2
-    c_tilde = (psi_u.T @ w_bar @ psi_v) / (lambda_uv + epsilon)
-
-    return psi_u @ c_tilde @ psi_v.T
-
-
-def merge_eigcov_sylvester_v4(tensors, *args, **kwargs):
-    u, s, vt = torch.linalg.svd(tensors, full_matrices=False)
-    pu_tilde = torch.bmm(u, u.transpose(1, 2)).sum(dim=0)
-    pv_tilde = torch.bmm(vt.transpose(1, 2), vt).sum(dim=0)
-
-    # svd of projectors
-    psi_u, lambda_u, _ = torch.linalg.svd(pu_tilde, full_matrices=True)
-    psi_v, lambda_v, _ = torch.linalg.svd(pv_tilde, full_matrices=True)
-
-    # # extract diags
-    # lambda_uv = lambda_u.unsqueeze(1) + lambda_v.unsqueeze(0)
-    wbar = tensors.sum(dim=0)
-    return psi_u @ psi_u.T @ wbar @ psi_v @ psi_v.T
-
-
-def merge_punity(pt_tensor, task_tensors, **kwargs):
-    # partition of unity method
-    # W = \sum_i Wi Qi (\sum_j Qj)^-1
-    q = torch.bmm(task_tensors.transpose(1, 2), task_tensors)  # (N, Di, Di)
-    qbar = q.sum(dim=0)
-    return pt_tensor + (torch.bmm(task_tensors, q).sum(dim=0) @ torch.linalg.pinv(qbar))
+def get_rank_from_spectrum(spectrum):
+    # return np.sum(np.square(spectrum)) / np.max(np.square(spectrum))
+    return np.sum(spectrum > 1e-5)
 
 
 def opmerge(pt_state_dict, ft_ckpt_paths, merge_type, remove_keys, cache_size=32):
@@ -588,14 +509,28 @@ def opmerge(pt_state_dict, ft_ckpt_paths, merge_type, remove_keys, cache_size=32
         "ta": merge_ta,
         "mix_wa_ta": mixed_wa_ta_merging,
         "mix_wa_ta_abl": mixed_wa_ta_merging_abl,
-        "tsv": merge_tsv,
-        "punity": merge_punity,
     }[merge_type]
 
     new_sd = {}
     num_keys = len(pt_state_dict)
     cache = {}
     keys = list(pt_state_dict.keys())
+
+    # Load spectrums and comput ranks
+    RESULTS_DIR = "results"
+    DATASET_NAME = "qasc"
+    MODEL_NAME = "t5-base"
+    # Load spectrums
+    with open(
+        os.path.join(RESULTS_DIR, f"spectrums_d{DATASET_NAME}_m{MODEL_NAME}.pkl"), "rb"
+    ) as f:
+        spectrums = pickle.load(f)
+
+    # Compute ranks
+    ranks_dict = {}
+    for key, spectrum in spectrums.items():
+        ranks_dict[key] = get_rank_from_spectrum(spectrum) / min(spectrum.shape)
+
     for i, (key, pt_tens) in enumerate(pt_state_dict.items()):
         if len(pt_tens.shape) == 2 and not key in remove_keys:
             # merge
@@ -614,7 +549,10 @@ def opmerge(pt_state_dict, ft_ckpt_paths, merge_type, remove_keys, cache_size=32
                 task_tensors.append(ft_state_dict[key] - pt_tens)
             task_tensors = torch.stack(task_tensors)
             new_sd[key] = merge_fn(
-                pt_tensor=pt_tens, task_tensors=task_tensors, key=key
+                pt_tensor=pt_tens,
+                task_tensors=task_tensors,
+                key=key,
+                ranks_dict=ranks_dict,
             )
             print(f"[{i}/{num_keys}] Merged {key} with {merge_type}")
         else:

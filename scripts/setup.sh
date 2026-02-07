@@ -18,8 +18,9 @@ python scripts/download_model.py
 # "story_cloze": StoryClozeReader,
 # "winogrande": WinograndeReader,
 # "wsc": WSCReader,
-dataset=wsc; \
-python src/training.py -c configs/t5_base.json -k train_batch_size=8 gradient_accumulation_factor=1 project_name=training experiment_name=${dataset} train_dataset=${dataset} train_dataset_mixture=None inference_dataset_mixture=${dataset}
+dataset=paws; \
+model_name=t5_large; \
+python src/training.py -c configs/${model_name}.json -k project_name=training experiment_name=${dataset} train_dataset=${dataset} train_dataset_mixture=None inference_dataset_mixture=${dataset}
 
 
 # 4. Evaluate T5-Base on these
@@ -34,10 +35,10 @@ python ./src/inference.py -c configs/t5_base.json -i ${dataset} --kwargs checkpo
 datasets_to_merge=qasc,wiki_qa,quartz,paws,winogrande,wsc; \
 datasets_to_inference=qasc,wiki_qa,quartz,paws,winogrande,wsc; \
 eval_split=validation; \
-method=wa; \
+method=mix_wa_ta; \
 python ./src/ties_merging.py -c configs/t5_base.json -i ${datasets_to_inference} -m ${datasets_to_merge} -f opm::${method} --kwargs split=${eval_split} project_name=evaluation experiment_name=opm_${method}
 
-# -c configs/t5_base.json -i qasc,quartz -m qasc,quartz -f basic_mean --kwargs split=validation project_name=evaluation experiment_name=mean
+# -c configs/t5_base.json -i qasc,quartz -m qasc,quartz -f opm::mix_wa_ta --kwargs split=validation project_name=evaluation experiment_name=mix_wa_ta
 
 
 # Results for T5-Base on these
