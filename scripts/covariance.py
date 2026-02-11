@@ -144,19 +144,29 @@ def main(args):
     MODEL_NAME = args.model
     MAX_HOOKS = args.max_hooks
     MAX_BATCHES = args.max_batches
+    BATCH_SIZE = args.batch_size
     RESULTS_DIR = "results"
     covs_filepath = os.path.join(RESULTS_DIR, f"covs_d{DATASET_NAME}_m{MODEL_NAME}.pkl")
     spectrums_filepath = os.path.join(
         RESULTS_DIR, f"spectrums_d{DATASET_NAME}_m{MODEL_NAME}.pkl"
     )
 
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    # First check if the covariances and spectrums have already been computed
+    if (
+        os.path.exists(covs_filepath)
+        and os.path.exists(spectrums_filepath)
+        and not args.overwrite
+    ):
+        print(
+            f"Covariances and Spectrums already computed for {DATASET_NAME} and {MODEL_NAME}"
+            f"and overwrite is not set. Skipping..."
+        )
+        return
+
     root_dir = osp.join(
         os.environ.get("SCRATCH", ""), "ties", "exp_out", "training", MODEL_NAME
     )
-    task_to_model_dict = {
-        "qasc": osp.join(root_dir, "qasc", "best_model.pt"),
-        "quartz": osp.join(root_dir, "quartz", "best_model.pt"),
-    }
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     createPytorchDataset_fn = lambda dataset: PytorchDataset(dataset, tokenizer, device)
@@ -171,8 +181,8 @@ def main(args):
     batcher = Batcher(
         dataset_reader,
         createPytorchDataset_fn,
-        train_batchSize=32,
-        eval_batchSize=32,
+        train_batchSize=BATCH_SIZE,
+        eval_batchSize=BATCH_SIZE,
         world_size=1,
         device=0,
     )
@@ -183,7 +193,8 @@ def main(args):
     model = T5Wrapper(transformer, tokenizer)
 
     # Optionally load state_dict
-    model.load_state_dict(torch.load(task_to_model_dict[DATASET_NAME]))
+    model_state_dict_path = osp.join(root_dir, DATASET_NAME, "best_model.pt")
+    model.load_state_dict(torch.load(model_state_dict_path))
     model.to(device)
     model.train()
 
@@ -197,7 +208,6 @@ def main(args):
             # print("out.shape", out.shape)
             inp = _inp[0]
             if torch.is_tensor(inp):
-                print("inp.shape", inp.shape)
                 B, T, D = inp.shape
                 if name not in stats:
                     ocov = OnlineCovariance(D)
@@ -227,7 +237,7 @@ def main(args):
     model.to(device)
     train_iterator = batcher.get_trainBatches("train", 0)
     with torch.no_grad():
-        for i, batch in tqdm(enumerate(train_iterator), total=MAX_BATCHES):
+        for i, batch in tqdm(enumerate(train_iterator), total=MAX_BATCHES, leave=False):
             model(batch)
             if i > MAX_BATCHES:
                 break
@@ -266,7 +276,15 @@ def main(args):
 
 
 if __name__ == "__main__":
-    DATASETS = ["qasc", "wiki_qa", "quartz", "paws", "story_cloze", "winogrande", "wsc"]
+    DATASETS = [
+        "qasc",
+        "wiki_qa",
+        "quartz",
+        "paws",
+        # "story_cloze", # error
+        "winogrande",
+        "wsc",
+    ]
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=str, default="qasc")
     parser.add_argument("--model", type=str, default="t5-base")

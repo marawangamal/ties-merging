@@ -101,7 +101,13 @@ def merge_and_evalaute(
     if "opm" in merge_function:
         pt_state_dict = model.state_dict()
         ft_ckpt_paths = [
-            os.path.join("exp_out", "training", "t5-base", d, "best_model.pt")
+            os.path.join(
+                "exp_out",
+                "training",
+                config_toInit.pretrained_model,
+                d,
+                "best_model.pt",
+            )
             for d in all_mixing_datasets
         ]
         # TODO: Hardcoding. Only handling t5 case for now.

@@ -426,8 +426,28 @@ def merge_ta(pt_tensor, task_tensors, **kwargs):
     return pt_tensor + task_tensors.sum(dim=0) * 0.4
 
 
+def merge_ta_nohpt(pt_tensor, task_tensors, **kwargs):
+    return pt_tensor + task_tensors.sum(dim=0)
+
+
 def merge_wa(pt_tensor, task_tensors, **kwargs):
     return pt_tensor + task_tensors.mean(dim=0)
+
+
+# def merge_mix_alpha(
+#     pt_tensor,
+#     task_tensors,
+#     layer_name,
+#     pattern,
+#     alpha_pattern=1.0,
+#     alpha_default=1.0,
+#     **kwargs,
+# ):
+#     alpha = alpha_default
+#     if re.search(pattern, layer_name):
+#         alpha = alpha_pattern
+#     print(f"[{layer_name}] Using alpha={alpha}")
+#     return pt_tensor + (alpha * task_tensors.sum(dim=0))
 
 
 # def mixed_wa_ta_merging(pt_tensor, task_tensors, key, ranks_dict, **kwargs):
@@ -442,11 +462,50 @@ def merge_wa(pt_tensor, task_tensors, **kwargs):
 #     return merge_ta(pt_tensor, task_tensors)
 
 
-def mixed_wa_ta_merging(pt_tensor, task_tensors, key, **kwargs):
-    if "wi" in key:
-        return merge_wa(pt_tensor, task_tensors)
+# Wo: 72.3
+# Wi: 71.3
+# SelfAttention.o: 71.4
+# SelfAttention.v: 71.9
+# SelfAttention.k: 70.9
+# SelfAttention.q:
+
+
+def mixed_avg_default(pt_tensor, task_tensors, key, **kwargs):
+    if "SelfAttention.o" in key:  # TA
+        return pt_tensor + task_tensors.sum(dim=0)
     else:
-        return merge_ta(pt_tensor, task_tensors)
+        return merge_wa(pt_tensor, task_tensors)
+
+
+def mixed_add_default(pt_tensor, task_tensors, key, **kwargs):
+    if "wo" in key:  # TA
+        return pt_tensor + task_tensors.mean(dim=0)
+    else:
+        return pt_tensor + task_tensors.sum(dim=0)
+
+    # DenseReluDense.wi    0.268122
+    # DenseReluDense.wo    0.260045
+    # SelfAttention.k      0.268792
+    # SelfAttention.o      0.335910
+    # SelfAttention.q      0.263365
+    # SelfAttention.v      0.277154
+    # alpha_dct = {
+    #     "DenseReluDense.wi": 0.268122,
+    #     "DenseReluDense.wo": 0.260045,
+    #     "SelfAttention.k": 0.268792,
+    #     "SelfAttention.o": 0.335910,
+    #     "SelfAttention.q": 0.263365,
+    #     "SelfAttention.v": 0.277154,
+    # }
+    # delta = task_tensors.sum(dim=0)
+    # for k, a in alpha_dct.items():
+    #     if k in key:
+    #         # return merge_wa(pt_tensor, task_tensors) * a + merge_ta(pt_tensor, task_tensors) * (1 - a)
+
+    #         print(f"[{key}] Used alpha: {a}")
+    #         return pt_tensor + delta * a
+    # print(f"[{key}] Used alpha: {alpha_default}")
+    # return pt_tensor + delta * alpha_default
 
 
 def mixed_wa_ta_merging_abl(pt_tensor, task_tensors, key):
@@ -492,9 +551,11 @@ def merge_tsv(pt_tensor, task_tensors, **kwargs):
     return pt_tensor + tau_l
 
 
-# **************************************************
-#               Eigen Covariance
-# **************************************************
+def merge_isoc(pt_tensor, task_tensors, *args, **kwargs):
+    m = task_tensors.sum(dim=0)
+    u, s, vt = torch.linalg.svd(m, full_matrices=False)
+    s_mean = s.mean() * torch.ones_like(s)
+    return pt_tensor + torch.einsum("ik,k,kj->ij", u, s_mean, vt)
 
 
 def get_rank_from_spectrum(spectrum):
@@ -507,8 +568,11 @@ def opmerge(pt_state_dict, ft_ckpt_paths, merge_type, remove_keys, cache_size=32
     merge_fn = {
         "wa": merge_wa,
         "ta": merge_ta,
-        "mix_wa_ta": mixed_wa_ta_merging,
-        "mix_wa_ta_abl": mixed_wa_ta_merging_abl,
+        "ta_nohpt": merge_ta_nohpt,
+        "mix_avg_default": mixed_avg_default,
+        "mix_add_default": mixed_add_default,
+        "tsv": merge_tsv,
+        "isoc": merge_isoc,
     }[merge_type]
 
     new_sd = {}
@@ -516,20 +580,20 @@ def opmerge(pt_state_dict, ft_ckpt_paths, merge_type, remove_keys, cache_size=32
     cache = {}
     keys = list(pt_state_dict.keys())
 
-    # Load spectrums and comput ranks
-    RESULTS_DIR = "results"
-    DATASET_NAME = "qasc"
-    MODEL_NAME = "t5-base"
-    # Load spectrums
-    with open(
-        os.path.join(RESULTS_DIR, f"spectrums_d{DATASET_NAME}_m{MODEL_NAME}.pkl"), "rb"
-    ) as f:
-        spectrums = pickle.load(f)
+    # # Load spectrums and comput ranks
+    # RESULTS_DIR = "results"
+    # DATASET_NAME = "qasc"
+    # MODEL_NAME = "t5-base"
+    # # Load spectrums
+    # with open(
+    #     os.path.join(RESULTS_DIR, f"spectrums_d{DATASET_NAME}_m{MODEL_NAME}.pkl"), "rb"
+    # ) as f:
+    #     spectrums = pickle.load(f)
 
-    # Compute ranks
-    ranks_dict = {}
-    for key, spectrum in spectrums.items():
-        ranks_dict[key] = get_rank_from_spectrum(spectrum) / min(spectrum.shape)
+    # # Compute ranks
+    # ranks_dict = {}
+    # for key, spectrum in spectrums.items():
+    #     ranks_dict[key] = get_rank_from_spectrum(spectrum) / min(spectrum.shape)
 
     for i, (key, pt_tens) in enumerate(pt_state_dict.items()):
         if len(pt_tens.shape) == 2 and not key in remove_keys:
@@ -552,7 +616,7 @@ def opmerge(pt_state_dict, ft_ckpt_paths, merge_type, remove_keys, cache_size=32
                 pt_tensor=pt_tens,
                 task_tensors=task_tensors,
                 key=key,
-                ranks_dict=ranks_dict,
+                # ranks_dict=ranks_dict,
             )
             print(f"[{i}/{num_keys}] Merged {key} with {merge_type}")
         else:

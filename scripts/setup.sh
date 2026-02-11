@@ -18,7 +18,7 @@ python scripts/download_model.py
 # "story_cloze": StoryClozeReader,
 # "winogrande": WinograndeReader,
 # "wsc": WSCReader,
-dataset=paws; \
+dataset=wsc; \
 model_name=t5_large; \
 python src/training.py -c configs/${model_name}.json -k project_name=training experiment_name=${dataset} train_dataset=${dataset} train_dataset_mixture=None inference_dataset_mixture=${dataset}
 
@@ -34,11 +34,28 @@ python ./src/inference.py -c configs/t5_base.json -i ${dataset} --kwargs checkpo
 # winogrande  wsc
 datasets_to_merge=qasc,wiki_qa,quartz,paws,winogrande,wsc; \
 datasets_to_inference=qasc,wiki_qa,quartz,paws,winogrande,wsc; \
-eval_split=validation; \
+eval_split=test; \
 method=mix_wa_ta; \
-python ./src/ties_merging.py -c configs/t5_base.json -i ${datasets_to_inference} -m ${datasets_to_merge} -f opm::${method} --kwargs split=${eval_split} project_name=evaluation experiment_name=opm_${method}
+model_name=t5_base; \
+python ./src/ties_merging.py -c configs/${model_name}.json -i ${datasets_to_inference} -m ${datasets_to_merge} -f opm::${method} --kwargs split=${eval_split} project_name=evaluation experiment_name=opm_${method}
 
-# -c configs/t5_base.json -i qasc,quartz -m qasc,quartz -f opm::mix_wa_ta --kwargs split=validation project_name=evaluation experiment_name=mix_wa_ta
+# 5. Merge T5-Base on these
+# winogrande  wsc
+datasets_to_merge=qasc,wiki_qa,quartz,paws,winogrande,wsc; \
+datasets_to_inference=qasc,wiki_qa,quartz,paws,winogrande,wsc; \
+eval_split=test; \
+method=mix_alpha; \
+model_name=t5_base; \
+python ./src/ties_merging.py -c configs/${model_name}.json \
+-i ${datasets_to_inference} \
+-m ${datasets_to_merge} \
+-f opm::${method} --kwargs split=${eval_split} \
+project_name=evaluation experiment_name=opm_${method} \
+opm_pattern="wo",
+opm_alpha_default=0.166 \
+opm_alpha_pattern=1.0
+
+
 
 
 # Results for T5-Base on these
