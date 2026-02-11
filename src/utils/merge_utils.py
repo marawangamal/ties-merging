@@ -434,20 +434,20 @@ def merge_wa(pt_tensor, task_tensors, **kwargs):
     return pt_tensor + task_tensors.mean(dim=0)
 
 
-# def merge_mix_alpha(
-#     pt_tensor,
-#     task_tensors,
-#     layer_name,
-#     pattern,
-#     alpha_pattern=1.0,
-#     alpha_default=1.0,
-#     **kwargs,
-# ):
-#     alpha = alpha_default
-#     if re.search(pattern, layer_name):
-#         alpha = alpha_pattern
-#     print(f"[{layer_name}] Using alpha={alpha}")
-#     return pt_tensor + (alpha * task_tensors.sum(dim=0))
+def merge_mix_alpha(
+    pt_tensor,
+    task_tensors,
+    key,
+    pattern="",
+    alpha_pattern=1.0,
+    alpha_default=1.0,
+    **kwargs,
+):
+    alpha = alpha_default
+    if pattern and re.search(pattern, key):
+        alpha = alpha_pattern
+    print(f"[{key}] Using alpha={alpha}")
+    return pt_tensor + (alpha * task_tensors.sum(dim=0))
 
 
 # def mixed_wa_ta_merging(pt_tensor, task_tensors, key, ranks_dict, **kwargs):
@@ -563,16 +563,21 @@ def get_rank_from_spectrum(spectrum):
     return np.sum(spectrum > 1e-5)
 
 
-def opmerge(pt_state_dict, ft_ckpt_paths, merge_type, remove_keys, cache_size=32):
+def opmerge(
+    pt_state_dict, ft_ckpt_paths, merge_type, remove_keys, cache_size=32, **merge_kwargs
+):
 
     merge_fn = {
-        "wa": merge_wa,
+        # 66.3,71.6,93.3,61.0,65.9,51.6,54.2
+        # 66.3,71.6,93.3,61.0,65.9,51.6,54.2
+        "wa": merge_ta,
         "ta": merge_ta,
         "ta_nohpt": merge_ta_nohpt,
         "mix_avg_default": mixed_avg_default,
         "mix_add_default": mixed_add_default,
         "tsv": merge_tsv,
         "isoc": merge_isoc,
+        "mix_alpha": merge_mix_alpha,
     }[merge_type]
 
     new_sd = {}
@@ -616,7 +621,7 @@ def opmerge(pt_state_dict, ft_ckpt_paths, merge_type, remove_keys, cache_size=32
                 pt_tensor=pt_tens,
                 task_tensors=task_tensors,
                 key=key,
-                # ranks_dict=ranks_dict,
+                **merge_kwargs,
             )
             print(f"[{i}/{num_keys}] Merged {key} with {merge_type}")
         else:

@@ -43,17 +43,17 @@ python ./src/ties_merging.py -c configs/${model_name}.json -i ${datasets_to_infe
 # winogrande  wsc
 datasets_to_merge=qasc,wiki_qa,quartz,paws,winogrande,wsc; \
 datasets_to_inference=qasc,wiki_qa,quartz,paws,winogrande,wsc; \
-eval_split=test; \
+eval_split=validation; \
 method=mix_alpha; \
 model_name=t5_base; \
 python ./src/ties_merging.py -c configs/${model_name}.json \
 -i ${datasets_to_inference} \
 -m ${datasets_to_merge} \
+--mix_alpha_pattern="SelfAttention.o" \
+--mix_alpha_alpha_pattern=1.0
+--mix_alpha_alpha_default=0.166 \
 -f opm::${method} --kwargs split=${eval_split} \
-project_name=evaluation experiment_name=opm_${method} \
-opm_pattern="wo",
-opm_alpha_default=0.166 \
-opm_alpha_pattern=1.0
+project_name=evaluation experiment_name=opm_${method} 
 
 
 

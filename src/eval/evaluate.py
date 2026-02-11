@@ -6,7 +6,7 @@ from src.data.dataset_readers import get_datasetReader
 from src.data.Batcher import Batcher
 from src.data.PytorchDataset import PytorchDataset
 
-from src.eval.utils import prepare_batchOfEvalInfo, getAndMake_specificPredictionDir
+from src.eval.utils import prepare_batchOfEvalInfo, getAndMake_specificPredictionDir, get_predictionFP
 from src.eval.cache import getCached_predictions, does_cachePredictionExist
 from src.eval.Evaluator import Evaluator
 
@@ -42,27 +42,30 @@ def evaluate_model(
     logger.info(f"\tEvaluating model on {evaluation_config.inference_dataset} dataset")
 
     if is_nodeZero(device):
-        (
-            canUseCached_predictionFP,
-            cached_evaluationConfigDict_toUse,
-            prediction_fp,
-        ) = does_cachePredictionExist(
-            evaluation_config,
-            specificPrediction_dir,
-            keys_mustMatch=[
-                "use_bfloat16_during_eval",
-                "max_gen_len",
-                "few_shot_random_seed",
-            ],
-        )
-
-        if canUseCached_predictionFP:
-            return getCached_predictions(
-                evaluation_config,
+        if not getattr(evaluation_config, "no_eval_cache", False):
+            (
+                canUseCached_predictionFP,
                 cached_evaluationConfigDict_toUse,
                 prediction_fp,
-                metrics,
+            ) = does_cachePredictionExist(
+                evaluation_config,
+                specificPrediction_dir,
+                keys_mustMatch=[
+                    "use_bfloat16_during_eval",
+                    "max_gen_len",
+                    "few_shot_random_seed",
+                ],
             )
+
+            if canUseCached_predictionFP:
+                return getCached_predictions(
+                    evaluation_config,
+                    cached_evaluationConfigDict_toUse,
+                    prediction_fp,
+                    metrics,
+                )
+        else:
+            prediction_fp = get_predictionFP(specificPrediction_dir, 0)
 
         # evaluator must be created after checking if the cache of model predictions exists,
         # since evaluator creates the prediction fp
