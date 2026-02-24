@@ -132,6 +132,7 @@ def does_cachePredictionExist(
 
     if not canUseCached_predictionFP:
         evaluationConfigDict_runs.append(evaluation_config.get_dict())
+        os.makedirs(specificPrediction_dir, exist_ok=True)
         json.dump(evaluationConfigDict_runs, open(evaluationRuns_fp, "w+"))
 
     prediction_fp = get_predictionFP(specificPrediction_dir, idxOf_predictionFP)

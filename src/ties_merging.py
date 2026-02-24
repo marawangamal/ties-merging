@@ -97,7 +97,11 @@ def resolve_lambda_code(lambda_code):
         task_lambdas = lambda_code.split("+")[-1].split(",")
         lambda_list = np.array(task_lambdas).astype(float).tolist()
     else:
-        raise NotImplementedError(f"Unable to decode lambda_code {lambda_code}")
+        # Try parsing as a plain float (e.g. "1.0" from CLI)
+        try:
+            lambda_list = [float(lambda_code)]
+        except ValueError:
+            raise NotImplementedError(f"Unable to decode lambda_code {lambda_code}")
     return lambda_list
 
 
@@ -223,41 +227,49 @@ def merge_and_evalaute(
             )
     elif "opm" in merge_function:
         logger.info(f"** Performing Merging with {merge_function} **")
-        _, merge_type = merge_function.split("::")
-        # merged_checkpoint = opmerge(merge_type, ft_checks, remove_keys)
-        merged_checkpoint = opmerge(
-            pt_state_dict=pt_state_dict,
-            ft_ckpt_paths=ft_ckpt_paths,
-            merge_type=merge_type,
-            remove_keys=remove_keys,
-            **(merge_kwargs or {}),
-        )
-        model.load_state_dict(merged_checkpoint, strict=True)
-        # Evaluate
-        experiment_dir = os.path.join(
-            config_toInit.experiment_dir,
-            dataset_folder,
-        )
-        cached_dataset_reader = inference(
-            model,
-            tokenizer,
-            config_toInit,
-            model_config,
-            cached_datasetReaders=cached_dataset_reader,
-            across_multiplePrompts=multiple_prompts,
-            experiment_dir=experiment_dir,
-            all_inferenceDatasetMixtures=all_inference_dataset_mixtures,
-            inference_kwargs=inference_kwargs,
-            device=device,
-        )
-        if log_to_csv:
-            _log_to_csv(
-                log_to_csv,
-                config_toInit.pretrained_model,
-                merge_function,
-                experiment_dir,
-                multiple_prompts,
+        opm_parts = merge_function.split("::")
+        merge_type = opm_parts[1]
+        lambda_code = opm_parts[2] if len(opm_parts) > 2 else "1.0"
+        lambdas = resolve_lambda_code(lambda_code)
+
+        for lam in lambdas:
+            lam = round(float(lam), 2)
+            logger.info(f"** opm::{merge_type} | lambda={lam} **")
+            merged_checkpoint = opmerge(
+                pt_state_dict=pt_state_dict,
+                ft_ckpt_paths=ft_ckpt_paths,
+                merge_type=merge_type,
+                remove_keys=remove_keys,
+                scaling_coefficient=lam,
+                **(merge_kwargs or {}),
             )
+            model.load_state_dict(merged_checkpoint, strict=True)
+            # Evaluate
+            experiment_dir = os.path.join(
+                config_toInit.experiment_dir,
+                dataset_folder,
+                f"lambda_{lam}",
+            )
+            cached_dataset_reader = inference(
+                model,
+                tokenizer,
+                config_toInit,
+                model_config,
+                cached_datasetReaders=cached_dataset_reader,
+                across_multiplePrompts=multiple_prompts,
+                experiment_dir=experiment_dir,
+                all_inferenceDatasetMixtures=all_inference_dataset_mixtures,
+                inference_kwargs=inference_kwargs,
+                device=device,
+            )
+            if log_to_csv:
+                _log_to_csv(
+                    log_to_csv,
+                    config_toInit.pretrained_model,
+                    f"{merge_function}_lambda{lam}",
+                    experiment_dir,
+                    multiple_prompts,
+                )
     elif "task-vector" in merge_function:
         merge_type, lambda_code = merge_function.split("_")
         merged_tv = tv_merging(tv_flat_checks)
