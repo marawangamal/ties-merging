@@ -61,7 +61,7 @@ def convert_listOfDict_toDictOfList(list_ofDict):
     dict_ofList = {}
 
     for single_dict in list_ofDict:
-        for (k, v) in single_dict.items():
+        for k, v in single_dict.items():
             if k in dict_ofList:
                 dict_ofList[k].append(v)
             else:
@@ -321,7 +321,7 @@ def group_by(list_ofItems, fn_toGetGroupByField):
 
 def map_forDictionaries(my_dict, map_fn):
     mapped_dict = {}
-    for (k, v) in my_dict.items():
+    for k, v in my_dict.items():
         mapped_dict[k] = map_fn(v)
     return mapped_dict
 
@@ -418,7 +418,7 @@ def check_list_equality(list_one, list_two):
                 f"list_two has lengths {len(list_two)}"
             )
 
-        for (idx, (element_one, element_two)) in enumerate(zip(list_one, list_two)):
+        for idx, (element_one, element_two) in enumerate(zip(list_one, list_two)):
             if element_one != element_two:
                 print(
                     f"The first element that differs is at position {idx}. \n"

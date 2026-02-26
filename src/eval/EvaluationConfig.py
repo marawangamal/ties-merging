@@ -32,6 +32,7 @@ class EvaluationConfig(Config):
         self.use_bfloat16_during_eval = False
 
         self.world_size = None
+        self.no_eval_cache = False
 
         self.did_run_finish = False
 

@@ -1,0 +1,97 @@
+(.venv) marawan.gamal@cn-c002:~/scratch/ties$ echo "lambda,Avg.,qasc,wiki_qa,quartz,paws,winogrande,wsc"; for l in $(seq 0.1 0.1 1.0); do   f="exp_out/evaluation/t5-base/opm_mix_add_default/qasc,wiki_qa,quartz,paws,winogrande,wsc/lambda_${l}/inference_scores.txt";   printf "%.1f," "$l";   [ -f "$f" ] && tail -n1 "$f" || echo "NA"; done
+lambda,Avg.,qasc,wiki_qa,quartz,paws,winogrande,wsc
+opm_mix_add_default
+0.1,59.1,40.6,92.6,56.8,58.0,43.8,62.5
+0.2,62.8,75.0,93.8,65.4,67.4,31.2,43.8
+0.3,69.4,84.4,93.9,69.5,78.0,31.2,59.4
+0.4,72.3,84.4,94.4,71.9,82.9,37.5,62.5
+0.5,72.9,81.2,94.7,74.0,84.5,40.6,62.5
+0.6,73.4,81.2,94.9,75.0,85.9,40.6,62.5
+0.7,74.2,78.1,94.8,76.3,86.8,46.9,62.5**
+0.8,70.5,65.6,94.7,75.5,87.3,37.5,62.5
+0.9,67.1,50.0,94.4,74.5,87.1,34.4,62.5
+1.0,66.8,46.9,94.4,72.9,86.9,37.5,62.5
+
+
+(.venv) marawan.gamal@cn-c002:~/scratch/ties$ echo "lambda,Avg.,qasc,wiki_qa,quartz,paws,winogrande,wsc"; for l in $(seq 0.1 0.1 1.0); do   f="exp_out/evaluation/t5-base/opm_mix_avg_default/qasc,wiki_qa,quartz,paws,winogrande,wsc/lambda_${l}/inference_scores.txt";   printf "%.1f," "$l";   [ -f "$f" ] && tail -n1 "$f" || echo "NA"; done
+lambda,Avg.,qasc,wiki_qa,quartz,paws,winogrande,wsc
+0.1,57.3,31.2,89.1,53.9,50.7,53.1,65.6
+0.2,58.1,31.2,90.9,53.4,54.2,53.1,65.6
+0.3,57.8,37.5,92.5,53.9,56.4,43.8,62.5
+0.4,57.9,40.6,93.2,56.0,57.7,37.5,62.5
+0.5,59.6,50.0,93.5,57.3,59.6,34.4,62.5
+0.6,63.5,65.6,93.6,59.4,62.3,34.4,65.6
+0.7,65.4,75.0,94.0,62.5,63.9,34.4,62.5
+0.8,65.6,78.1,94.1,62.0,65.8,31.2,62.5
+0.9,65.7,78.1,94.2,64.6,66.9,28.1,62.5
+1.0,67.9,81.2,94.3,65.4,69.5,31.2,65.6
+
+
+(.venv) marawan.gamal@cn-c016:~/scratch/ties$ echo "lambda,Avg.,qasc,wiki_qa,quartz,paws,winogrande,wsc"; for l in $(seq 0.1 0.1 1.0); do   f="exp_out/evaluation/t5-base/opm_mix_add_default/qasc,wiki_qa,quartz,paws,winogrande,wsc/lambda_${l}/inference_scores.txt";   printf "%.1f," "$l";   [ -f "$f" ] && tail -n1 "$f" || echo "NA"; done
+lambda,Avg.,qasc,wiki_qa,quartz,paws,winogrande,wsc
+opm_mix_add_default (base)
+opm_mix_add_default
+alpha applied only to TA
+0.1,58.4,43.8,93.1,57.8,59.0,34.4,62.5
+0.2,66.2,78.1,94.0,66.7,67.9,31.2,59.4
+0.3,71.2,84.4,94.2,69.8,78.7,34.4,65.6
+0.4,72.3,84.4,94.5,71.9,83.2,37.5,62.5
+0.5,73.1,81.2,94.9,74.5,84.7,40.6,62.5
+0.6,73.8,81.2,94.8,74.5,86.0,43.8,62.5**
+0.7,72.6,71.9,94.9,75.5,86.9,43.8,62.5
+0.8,70.5,65.6,94.8,75.5,87.2,37.5,62.5
+0.9,67.6,50.0,94.4,74.2,87.0,37.5,62.5
+1.0,66.8,46.9,94.4,72.9,86.9,37.5,62.5
+
+
+(.venv) marawan.gamal@cn-c016:~/scratch/ties$ echo "lambda,Avg.,qasc,wiki_qa,quartz,paws,winogrande,wsc"; for l in $(seq 0.1 0.1 1.0); do   f="exp_out/evaluation/t5-large/opm_mix_add_default/qasc,wiki_qa,quartz,paws,winogrande,wsc/lambda_${l}/inference_scores.txt";   printf "%.1f," "$l";   [ -f "$f" ] && tail -n1 "$f" || echo "NA"; done
+lambda,Avg.,qasc,wiki_qa,quartz,paws,winogrande,wsc
+opm_mix_add_default (large)
+alpha applied only to TA 
+0.1,53.0,6.2,73.8,72.1,56.6,46.9,62.5
+0.2,54.4,25.0,77.5,76.3,63.1,46.9,37.5
+0.3,65.8,59.4,81.0,78.6,82.1,43.8,50.0
+0.4,71.1,93.8,76.5,81.2,84.4,43.8,46.9
+0.5,71.9,93.8,74.3,82.3,84.2,46.9,50.0
+0.6,74.2,93.8,74.4,81.2,83.6,56.2,56.2
+0.7,74.1,90.6,75.5,80.7,82.4,59.4,56.2
+0.8,74.6,87.5,77.5,80.5,80.4,62.5,59.4**
+0.9,72.2,78.1,78.5,79.4,78.5,62.5,56.2
+1.0,69.2,62.5,79.6,77.9,76.3,59.4,59.4
+
+
+(.venv) marawan.gamal@cn-c016:~/scratch/ties$ echo "lambda,Avg.,qasc,wiki_qa,quartz,paws,winogrande,wsc"; for l in $(seq 0.1 0.1 1.0); do   f="exp_out/evaluation/t5-base/opm_ta/qasc,wiki_qa,quartz,paws,winogrande,wsc/lambda_${l}/inference_scores.txt";   printf "%.1f," "$l";   [ -f "$f" ] && tail -n1 "$f" || echo "NA"; done
+lambda,Avg.,qasc,wiki_qa,quartz,paws,winogrande,wsc
+TA
+0.1,59.4,43.8,92.9,57.8,58.5,40.6,62.5
+0.2,66.7,78.1,94.1,66.4,68.1,31.2,62.5
+0.3,70.8,84.4,94.4,69.8,79.3,34.4,62.5
+0.4,71.6,81.2,94.6,72.9,83.9,34.4,62.5
+0.5,72.2,78.1,95.0,74.5,85.8,37.5,62.5 **
+0.6,72.0,68.8,95.1,75.0,86.6,43.8,62.5
+0.7,69.5,56.2,95.2,75.3,87.3,40.6,62.5
+0.8,66.2,46.9,95.0,74.2,87.2,31.2,62.5
+0.9,65.3,40.6,94.7,72.7,87.0,34.4,62.5
+1.0,65.6,40.6,94.6,71.9,86.5,37.5,62.5
+
+(.venv) marawan.gamal@cn-c016:~/scratch/ties$ echo "lambda,Avg.,qasc,wiki_qa,quartz,paws,winogrande,wsc"; for l in $(seq 0.1 0.1 1.0); do   f="exp_out/evaluation/t5-large/opm_ta/qasc,wiki_qa,quartz,paws,winogrande,wsc/lambda_${l}/inference_scores.txt";   printf "%.1f," "$l";   [ -f "$f" ] && tail -n1 "$f" || echo "NA"; done
+lambda,Avg.,qasc,wiki_qa,quartz,paws,winogrande,wsc
+TA
+0.1,51.0,3.1,72.8,70.3,56.5,40.6,62.5
+0.2,54.1,25.0,78.3,76.6,63.4,43.8,37.5
+0.3,66.7,71.9,82.5,78.6,82.6,40.6,43.8
+0.4,72.0,90.6,78.7,81.2,84.5,46.9,50.0
+0.5,74.2,93.8,77.4,80.2,84.5,53.1,56.2
+0.6,75.0,87.5,79.0,81.0,83.7,62.5,56.2**
+0.7,74.8,81.2,80.4,80.5,81.4,62.5,62.5
+0.8,70.9,65.6,81.5,77.6,78.8,62.5,59.4
+0.9,69.8,59.4,83.5,74.5,76.2,62.5,62.5
+1.0,63.3,31.2,85.1,71.6,73.1,56.2,62.5
+
+
+Summary:
+model,method,alpha_star
+t5-base,ta,0.5
+t5-large,ta,0.6
+t5-base,opm_mix_add_default,0.6 <-- repeat
+t5-large,opm_mix_add_default,0.8

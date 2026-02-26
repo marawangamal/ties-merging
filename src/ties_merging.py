@@ -1,11 +1,14 @@
 import sys, os
 
+from utils.merging import opmerge
+
 print(f"Current working directory: {os.getcwd()}")
 sys.path.insert(0, os.getcwd())
 
 
 import wandb
 import argparse
+import csv
 import logging
 import torch
 import numpy as np
@@ -57,6 +60,33 @@ from src.utils.merge_utils import *
 logger = logging.getLogger("root")
 
 
+def _log_to_csv(csv_path, model_name, method_name, experiment_dir, multiple_prompts):
+    """Read the inference scores .txt file and append a row to the CSV."""
+    score_txt_path = os.path.join(
+        experiment_dir,
+        f"{'multiple_prompt_scores' if multiple_prompts else 'inference_scores'}.txt",
+    )
+    if not os.path.isfile(score_txt_path):
+        logger.warning(f"Score file not found, skipping CSV log: {score_txt_path}")
+        return
+
+    with open(score_txt_path, "r") as f:
+        lines = f.read().strip().split("\n")
+
+    # Last two lines are header (e.g. "Avg.,qasc,wiki_qa,...") and scores (e.g. "72.4,69.8,...")
+    header_parts = lines[-2].split(",")
+    scores_parts = lines[-1].split(",")
+
+    file_exists = os.path.isfile(csv_path)
+    with open(csv_path, "a", newline="") as f:
+        writer = csv.writer(f)
+        if not file_exists:
+            writer.writerow(["Model", "Method"] + header_parts)
+        writer.writerow([model_name, method_name] + scores_parts)
+
+    logger.info(f"Results appended to {csv_path}")
+
+
 def resolve_lambda_code(lambda_code):
     if type(lambda_code) is tuple:
         lambda_list = torch.tensor(lambda_code)
@@ -69,7 +99,11 @@ def resolve_lambda_code(lambda_code):
         task_lambdas = lambda_code.split("+")[-1].split(",")
         lambda_list = np.array(task_lambdas).astype(float).tolist()
     else:
-        raise NotImplementedError(f"Unable to decode lambda_code {lambda_code}")
+        # Try parsing as a plain float (e.g. "1.0" from CLI)
+        try:
+            lambda_list = [float(lambda_code)]
+        except ValueError:
+            raise NotImplementedError(f"Unable to decode lambda_code {lambda_code}")
     return lambda_list
 
 
@@ -82,6 +116,8 @@ def merge_and_evalaute(
     # tracker,
     inference_kwargs,
     device,
+    merge_kwargs=None,
+    log_to_csv=None,
 ):
     # Load pretrained model.
     model_config = ModelConfig(
@@ -98,7 +134,24 @@ def merge_and_evalaute(
     logger.info(f"Loading Checkpoints for Merging: {config_toInit.pretrained_model}")
     all_mixing_datasets = get_dataset_from_argparse(dataset_mixture_to_merge)
     dataset_folder = ",".join(d for d in all_mixing_datasets)
-    if config_toInit.pretrained_model == "bigscience/T0_3B":
+    if "opm" in merge_function:
+        pt_state_dict = model.state_dict()
+        ft_ckpt_paths = [
+            os.path.join(
+                "exp_out",
+                "training",
+                config_toInit.pretrained_model,
+                d,
+                "best_model.pt",
+            )
+            for d in all_mixing_datasets
+        ]
+        # TODO: Hardcoding. Only handling t5 case for now.
+        remove_keys = [
+            "transformer.encoder.embed_tokens.weight",
+            "transformer.decoder.embed_tokens.weight",
+        ]
+    elif config_toInit.pretrained_model == "bigscience/T0_3B":
         (
             tv_flat_checks,
             flat_ptm,
@@ -166,6 +219,72 @@ def merge_and_evalaute(
             inference_kwargs=inference_kwargs,
             device=device,
         )
+        if log_to_csv:
+            _log_to_csv(
+                log_to_csv,
+                config_toInit.pretrained_model,
+                merge_function,
+                experiment_dir,
+                multiple_prompts,
+            )
+    elif "opm" in merge_function:
+        # 77.3,95.7,95.1,87.2,91.5,51.2,62.0,58.3
+        logger.info(f"** Performing Merging with {merge_function} **")
+        opm_parts = merge_function.split("::")
+        merge_type = opm_parts[1]
+        lambda_code = opm_parts[2] if len(opm_parts) > 2 else "1.0"
+        lambdas = resolve_lambda_code(lambda_code)
+
+        # Get covariance paths
+        covariance_paths = [
+            os.path.join(
+                "results",
+                config_toInit.pretrained_model,
+                "covariances_n10_b32",
+                f"covariance_{d}.npz",
+            )
+            for d in all_mixing_datasets
+        ]
+
+        for lam in lambdas:
+            lam = round(float(lam), 2)
+            logger.info(f"** opm::{merge_type} | lambda={lam} **")
+            merged_checkpoint = opmerge(
+                pt_state_dict=pt_state_dict,
+                ft_ckpt_paths=ft_ckpt_paths,
+                merge_type=merge_type,
+                remove_keys=remove_keys,
+                scaling_coefficient=lam,
+                covariance_paths=covariance_paths,
+                **(merge_kwargs or {}),
+            )
+            model.load_state_dict(merged_checkpoint, strict=True)
+            # Evaluate
+            experiment_dir = os.path.join(
+                config_toInit.experiment_dir,
+                dataset_folder,
+                f"lambda_{lam}",
+            )
+            cached_dataset_reader = inference(
+                model,
+                tokenizer,
+                config_toInit,
+                model_config,
+                cached_datasetReaders=cached_dataset_reader,
+                across_multiplePrompts=multiple_prompts,
+                experiment_dir=experiment_dir,
+                all_inferenceDatasetMixtures=all_inference_dataset_mixtures,
+                inference_kwargs=inference_kwargs,
+                device=device,
+            )
+            if log_to_csv:
+                _log_to_csv(
+                    log_to_csv,
+                    config_toInit.pretrained_model,
+                    f"{merge_function}_lambda{lam}",
+                    experiment_dir,
+                    multiple_prompts,
+                )
     elif "task-vector" in merge_function:
         merge_type, lambda_code = merge_function.split("_")
         merged_tv = tv_merging(tv_flat_checks)
@@ -202,6 +321,14 @@ def merge_and_evalaute(
                 inference_kwargs=inference_kwargs,
                 device=device,
             )
+            if log_to_csv:
+                _log_to_csv(
+                    log_to_csv,
+                    config_toInit.pretrained_model,
+                    f"{merge_function}_lambda{lam:.1f}",
+                    experiment_dir,
+                    multiple_prompts,
+                )
     elif "oracle" in merge_function:
         oracle, reset, merge, lambda_code = merge_function.split("_")
         if "topk" in reset:
@@ -261,6 +388,14 @@ def merge_and_evalaute(
                 inference_kwargs=inference_kwargs,
                 device=device,
             )
+            if log_to_csv:
+                _log_to_csv(
+                    log_to_csv,
+                    config_toInit.pretrained_model,
+                    f"{merge_function}_lambda{lam:.1f}",
+                    experiment_dir,
+                    multiple_prompts,
+                )
     else:
         reset, resolve, merge, lambda_code = merge_function.split("_")
         if "topk" in reset:
@@ -316,6 +451,14 @@ def merge_and_evalaute(
                 inference_kwargs=inference_kwargs,
                 device=device,
             )
+            if log_to_csv:
+                _log_to_csv(
+                    log_to_csv,
+                    config_toInit.pretrained_model,
+                    f"{merge_function}_lambda{lam:.1f}",
+                    experiment_dir,
+                    multiple_prompts,
+                )
 
 
 if __name__ == "__main__":
@@ -338,6 +481,34 @@ if __name__ == "__main__":
     # basic_[mean, median, magnitude], task-vectors_[xx, linear+0+1+0.1, mergelist]
     # [none, topkx]_[mass, normfrac]_[mean, sum, median, magnitude, dis-mean, dis-sum]_[none, xx, linear+0+1+0.1, mergelist]
     parser.add_argument("-f", "--merge_function", type=str)
+
+    # Logging
+    parser.add_argument(
+        "--log_to_csv",
+        type=str,
+        default=None,
+        help="Path to a CSV file to append results to (e.g. results/results.csv)",
+    )
+
+    # mix_alpha merge method arguments (used with -f opm::mix_alpha)
+    parser.add_argument(
+        "--mix_alpha_pattern",
+        type=str,
+        default="",
+        help="Regex pattern to match layer names for alpha_pattern scaling",
+    )
+    parser.add_argument(
+        "--mix_alpha_alpha_pattern",
+        type=float,
+        default=1.0,
+        help="Alpha value for layers matching the pattern",
+    )
+    parser.add_argument(
+        "--mix_alpha_alpha_default",
+        type=float,
+        default=1.0,
+        help="Alpha value for layers not matching the pattern",
+    )
 
     args = parser.parse_args()
 
@@ -362,4 +533,10 @@ if __name__ == "__main__":
         args.all_inference_dataset_mixtures[0].split(","),
         args.kwargs,
         device,
+        merge_kwargs={
+            "pattern": args.mix_alpha_pattern,
+            "alpha_pattern": args.mix_alpha_alpha_pattern,
+            "alpha_default": args.mix_alpha_alpha_default,
+        },
+        log_to_csv=args.log_to_csv,
     )

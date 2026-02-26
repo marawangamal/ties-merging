@@ -19,5 +19,6 @@
     "seed": 42,
     "max_datapoints_per_dataset": 500000,
     "use_bfloat16_during_training": true,
-    "use_bfloat16_during_eval": true
+    "use_bfloat16_during_eval": true,
+    "should_eval_validation": true
 }
