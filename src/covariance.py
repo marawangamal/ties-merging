@@ -8,7 +8,7 @@ import torch
 
 
 class OnlineCovariance:
-    def __init__(self, dim1, dim2=1, device="cpu", mode="cov"):
+    def __init__(self, dim1, dim2=1, device="cpu", mode="sm"):
         self.device = device
         self.meanx = torch.zeros((dim1, dim2), device=device)
         self.meany = torch.zeros((dim1, dim2), device=device)
@@ -46,7 +46,7 @@ class OnlineCovariance:
         self.C += x @ y.T
 
 
-def register_hooks(model, args, extra_module_types=()):
+def register_hooks(model, cov_device, cov_mode="sm", extra_module_types=()):
     """Register forward hooks to collect per-layer covariance.
 
     Args:
@@ -78,9 +78,7 @@ def register_hooks(model, args, extra_module_types=()):
 
                 # DxT vector: full sequence per sample
                 if n not in cobjs:
-                    cobjs[n] = OnlineCovariance(
-                        D, T, device=args.cov_device, mode=args.cov_type
-                    )
+                    cobjs[n] = OnlineCovariance(D, T, device=cov_device, mode=cov_mode)
                 cobj = cobjs[n]
                 for b in range(B):
                     cobj.add(x[:, b].T, x[:, b].T)

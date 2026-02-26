@@ -23,14 +23,6 @@ from src.covariance import OnlineCovariance, register_hooks
 
 
 def main(args):
-    os.makedirs("results", exist_ok=True)
-    covs_filepath = os.path.join("results", f"covs_d{args.dataset}_m{args.model}.pkl")
-
-    # First check if the covariances and spectrums have already been computed
-    if os.path.exists(covs_filepath) and not args.overwrite:
-        print(f"Covariances already computed for {args.dataset} and {args.model}")
-        return
-
     tokenizer = AutoTokenizer.from_pretrained(args.model)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     createPytorchDataset_fn = lambda dataset: PytorchDataset(dataset, tokenizer, device)
@@ -59,17 +51,17 @@ def main(args):
     model.to(device)
     model.eval()
 
-    cobjs, handles = register_hooks(model, args)
+    cobjs, handles = register_hooks(model, cov_device=args.cov_device)
 
     # Run forward passes
     train_iterator = batcher.get_trainBatches("train", 0)
-    print(f"Running forward passes for {args.max_batches} batches")
+    print(f"Running forward passes for {args.num_batches} batches")
     with torch.no_grad():
         for i, batch in tqdm(
-            enumerate(train_iterator), total=args.max_batches, leave=False
+            enumerate(train_iterator), total=args.num_batches, leave=False
         ):
             model(batch)
-            if i > args.max_batches:
+            if i > args.num_batches:
                 break
 
     # Clear hooks
@@ -92,20 +84,22 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=str, default="qasc")
     parser.add_argument("--model", type=str, default="t5-base")
-    parser.add_argument("--max-batches", type=int, default=10)
+    parser.add_argument("--num-batches", type=int, default=50)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
-    covs_root_dir = os.path.join("results", args.model)
-    os.makedirs(covs_root_dir, exist_ok=True)
+    ss_num_batches = args.num_batches
+    ss_batch_size = args.batch_size
+    cov_dir = f"results/{args.model}/covariances_n{ss_num_batches}_b{ss_batch_size}"
+    os.makedirs(cov_dir, exist_ok=True)
 
     for dataset in DATASETS:
         # HACK: set device for model and covariance
         args.dataset = dataset
         args.model_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         args.cov_device = torch.device("cpu")
-        args.cov_type = "sm"  # second moment (uncentered)
+        cov_filepath = os.path.join(cov_dir, f"covariance_{dataset}.npz")
 
         # pt_state_dict = model.state_dict()
         args.ft_ckpt_path = os.path.join(
@@ -115,6 +109,11 @@ if __name__ == "__main__":
             "transformer.encoder.embed_tokens.weight",
             "transformer.decoder.embed_tokens.weight",
         ]
+
+        # First check if the covariances and spectrums have already been computed
+        if os.path.exists(cov_filepath) and not args.overwrite:
+            print(f"Covariances already computed for {args.dataset} and {args.model}")
+            continue
 
         print(f"Computing covariances and spectrums for {dataset} and {args.model}")
         cobjs = main(args)
@@ -129,6 +128,5 @@ if __name__ == "__main__":
         }
 
         # Save covariance using np.savez
-        covs_filepath = os.path.join(covs_root_dir, f"covariance_{dataset}.npz")
-        np.savez(covs_filepath, **cobjs)
-        print(f"Covariance saved to {covs_filepath}")
+        np.savez(cov_filepath, **cobjs)
+        print(f"Covariance saved to {cov_filepath}")
