@@ -1,5 +1,7 @@
 import sys, os
 
+from utils.merging import opmerge
+
 print(f"Current working directory: {os.getcwd()}")
 sys.path.insert(0, os.getcwd())
 
@@ -226,6 +228,7 @@ def merge_and_evalaute(
                 multiple_prompts,
             )
     elif "opm" in merge_function:
+        # 77.3,95.7,95.1,87.2,91.5,51.2,62.0,58.3
         logger.info(f"** Performing Merging with {merge_function} **")
         opm_parts = merge_function.split("::")
         merge_type = opm_parts[1]
@@ -235,7 +238,10 @@ def merge_and_evalaute(
         # Get covariance paths
         covariance_paths = [
             os.path.join(
-                "results", config_toInit.pretrained_model, f"covariance_{d}.npz"
+                "results",
+                config_toInit.pretrained_model,
+                "covariances_n10_b32",
+                f"covariance_{d}.npz",
             )
             for d in all_mixing_datasets
         ]
