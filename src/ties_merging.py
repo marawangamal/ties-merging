@@ -232,6 +232,14 @@ def merge_and_evalaute(
         lambda_code = opm_parts[2] if len(opm_parts) > 2 else "1.0"
         lambdas = resolve_lambda_code(lambda_code)
 
+        # Get covariance paths
+        covariance_paths = [
+            os.path.join(
+                "results", config_toInit.pretrained_model, f"covariance_{d}.npz"
+            )
+            for d in all_mixing_datasets
+        ]
+
         for lam in lambdas:
             lam = round(float(lam), 2)
             logger.info(f"** opm::{merge_type} | lambda={lam} **")
@@ -241,6 +249,7 @@ def merge_and_evalaute(
                 merge_type=merge_type,
                 remove_keys=remove_keys,
                 scaling_coefficient=lam,
+                covariance_paths=covariance_paths,
                 **(merge_kwargs or {}),
             )
             model.load_state_dict(merged_checkpoint, strict=True)

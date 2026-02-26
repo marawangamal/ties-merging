@@ -1,7 +1,5 @@
 import argparse
 import os
-import os.path as osp
-import pickle
 import sys
 from typing import Dict
 from tqdm import tqdm
@@ -22,15 +20,11 @@ from src.data.Batcher import Batcher
 from src.data.PytorchDataset import PytorchDataset
 from src.model.T5Wrapper import T5Wrapper
 from src.covariance import OnlineCovariance, register_hooks
-import src.mhas as mhas
 
 
 def main(args):
     os.makedirs("results", exist_ok=True)
     covs_filepath = os.path.join("results", f"covs_d{args.dataset}_m{args.model}.pkl")
-    root_dir = osp.join(
-        os.environ.get("SCRATCH", ""), "ties", "exp_out", "training", args.model
-    )
 
     # First check if the covariances and spectrums have already been computed
     if os.path.exists(covs_filepath) and not args.overwrite:
@@ -63,14 +57,9 @@ def main(args):
     model = T5Wrapper(transformer, tokenizer)
     model.load_state_dict(torch.load(args.ft_ckpt_path))
     model.to(device)
-    model = mhas.swap_mha(model)
     model.eval()
 
-    cobjs, handles = register_hooks(
-        model,
-        args,
-        extra_module_types=(mhas.MultiHeadAttentionSplit,),
-    )
+    cobjs, handles = register_hooks(model, args)
 
     # Run forward passes
     train_iterator = batcher.get_trainBatches("train", 0)
@@ -108,6 +97,9 @@ if __name__ == "__main__":
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
+    covs_root_dir = os.path.join("results", args.model)
+    os.makedirs(covs_root_dir, exist_ok=True)
+
     for dataset in DATASETS:
         # HACK: set device for model and covariance
         args.dataset = dataset
@@ -135,3 +127,8 @@ if __name__ == "__main__":
             k: v.cov.cpu().numpy() if isinstance(v, OnlineCovariance) else v
             for k, v in cobjs.items()
         }
+
+        # Save covariance using np.savez
+        covs_filepath = os.path.join(covs_root_dir, f"covariance_{dataset}.npz")
+        np.savez(covs_filepath, **cobjs)
+        print(f"Covariance saved to {covs_filepath}")

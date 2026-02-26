@@ -35,7 +35,7 @@ python ./src/inference.py -c configs/t5_base.json -i ${dataset} --kwargs checkpo
 datasets_to_merge=qasc,wiki_qa,quartz,paws,story_cloze,winogrande,wsc; \
 datasets_to_inference=qasc,wiki_qa,quartz,paws,story_cloze,winogrande,wsc; \
 eval_split=test; \
-method=prm; \
+method=regmean; \
 model_name=t5_base; \
 python ./src/ties_merging.py -c configs/${model_name}.json -i ${datasets_to_inference} -m ${datasets_to_merge} -f opm::${method} --kwargs split=${eval_split} project_name=evaluation experiment_name=opm_${method}
 
