@@ -46,12 +46,17 @@ class OnlineCovariance:
         self.C += x @ y.T
 
 
-def register_hooks(model, cov_device, cov_mode="sm", extra_module_types=()):
+def register_hooks(
+    model, cov_device, mask_ref=None, cov_mode="sm", extra_module_types=()
+):
     """Register forward hooks to collect per-layer covariance.
 
     Args:
         model: PyTorch model.
-        args: Namespace with cov_estimator, cov_device, cov_type.
+        cov_device: Device to store covariance matrices on.
+        mask_ref: A one-element list [mask_tensor] that the caller updates each
+            batch before the forward pass. The hook reads mask_ref[0] so it
+            always sees the current mask. Pass None to disable masking.
         extra_module_types: Additional module types to hook beyond
             nn.Linear and nn.MultiheadAttention (e.g. custom MHA variants).
 
@@ -74,14 +79,26 @@ def register_hooks(model, cov_device, cov_mode="sm", extra_module_types=()):
                 x = inp[0] if isinstance(inp, (tuple, list)) else inp
                 if not isinstance(x, torch.Tensor):
                     return
-                T, B, D = x.shape
+
+                # NOTE: for vision it was (T, B, D)
+                B, T, D = x.shape
+
+                # Pick the mask whose sequence length matches T
+                mask = None
+                if mask_ref is not None:
+                    for m in mask_ref:
+                        if m is not None and m.shape[1] == T:
+                            mask = m
+                            break
+                if mask is not None:
+                    x = x * mask.unsqueeze(-1)
 
                 # DxT vector: full sequence per sample
                 if n not in cobjs:
                     cobjs[n] = OnlineCovariance(D, T, device=cov_device, mode=cov_mode)
                 cobj = cobjs[n]
                 for b in range(B):
-                    cobj.add(x[:, b].T, x[:, b].T)
+                    cobj.add(x[b, :].T, x[b, :].T)
 
             return hook
 

@@ -51,7 +51,10 @@ def main(args):
     model.to(device)
     model.eval()
 
-    cobjs, handles = register_hooks(model, cov_device=args.cov_device)
+    mask_ref = [None, None]
+    cobjs, handles = register_hooks(
+        model, cov_device=args.cov_device, mask_ref=mask_ref
+    )
 
     # Run forward passes
     train_iterator = batcher.get_trainBatches("train", 0)
@@ -60,6 +63,8 @@ def main(args):
         for i, batch in tqdm(
             enumerate(train_iterator), total=args.num_batches, leave=False
         ):
+            mask_ref[0] = batch["input_mask"]
+            mask_ref[1] = batch["target_mask"]
             model(batch)
             if i > args.num_batches:
                 break
